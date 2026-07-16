@@ -7,7 +7,8 @@ TACZ VR 是面向 Minecraft Forge 1.20.1 的 VR 兼容附属模组，让
 项目采用独立附属模组形式交付，不替换 TACZ 或 Vivecraft 的 JAR，也不要求额外安装手柄控制模组。
 当前版本为 `0.1.0-alpha.7`，已完成默认枪包、专用服务器和 HMD 实机验证。
 
-作者与维护方：[TheDivisionISAC](https://github.com/TheDivisionISAC)。
+作者与维护方：[TheDivisionISAC](https://github.com/TheDivisionISAC)。公开源码：
+[TheDivisionISAC/tacz-vr-public](https://github.com/TheDivisionISAC/tacz-vr-public)。
 
 ## 当前功能
 
