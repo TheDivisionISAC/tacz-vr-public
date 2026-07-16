@@ -84,6 +84,8 @@ TACZ VR 不包含 TACZ 或 Vivecraft 的代码副本。不要同时安装早期�
 
 ## 许可证
 
-TACZ VR 使用 [MIT License](LICENSE)。允许使用、修改和再发布，但必须保留原版权与许可证声明。
+TACZ VR 的原创代码、资源数据和文档使用
+[GNU General Public License v3.0](LICENSE)，与 TACZ 1.20.1 的代码许可证保持一致。
+允许使用、修改和再发布；分发修改版本或二进制文件时，必须继续使用 GPLv3、保留版权与许可声明，并按许可证要求提供对应源代码。
 
-TACZ、Vivecraft 及相关资源分别受其自身许可证约束；本项目不改变这些上游项目的授权方式。
+本项目不包含 TACZ 的枪械模型、贴图、声音等资产。TACZ 的这些上游资产仍受 CC BY-NC-ND 4.0 约束；Vivecraft 及其他依赖也分别受其自身许可证约束。
