@@ -1,0 +1,191 @@
+import groovy.json.JsonSlurper
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
+def mixinConfigFile = file('src/main/resources/taczvr.mixins.json')
+def mixinSourceRoot = file('src/main/java/com/thedivisionisac/taczvr/mixin')
+def mainSourceRoot = file('src/main/java')
+def addonClassPrefix = 'com/thedivisionisac/taczvr/'
+
+def normalizeReleaseArchive = { File archive ->
+    File normalized = new File(archive.parentFile, "${archive.name}.normalized")
+    ZipFile input = new ZipFile(archive)
+    ZipOutputStream output = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(normalized)))
+    try {
+        Collections.list(input.entries()).sort { left, right -> left.name <=> right.name }.each { sourceEntry ->
+            ZipEntry targetEntry = new ZipEntry(sourceEntry.name)
+            targetEntry.time = 0L
+            if (sourceEntry.directory) {
+                targetEntry.method = ZipEntry.STORED
+                targetEntry.size = 0L
+                targetEntry.compressedSize = 0L
+                targetEntry.crc = 0L
+            }
+            output.putNextEntry(targetEntry)
+            if (!sourceEntry.directory) {
+                input.getInputStream(sourceEntry).withCloseable { stream -> stream.transferTo(output) }
+            }
+            output.closeEntry()
+        }
+    } finally {
+        output.close()
+        input.close()
+    }
+    Files.move(normalized.toPath(), archive.toPath(), StandardCopyOption.REPLACE_EXISTING)
+}
+
+afterEvaluate {
+    tasks.named('reobfJar') {
+        doLast {
+            normalizeReleaseArchive(tasks.named('jar').get().archiveFile.get().asFile)
+        }
+    }
+}
+
+tasks.register('verifySourceDocumentation') {
+    group = 'verification'
+    description = 'Checks package notes and class-level maintenance comments for production sources.'
+    inputs.dir(mainSourceRoot)
+
+    doLast {
+        def sourceFiles = fileTree(mainSourceRoot) { include '**/*.java' }.files
+        def codeFiles = sourceFiles.findAll { it.name != 'package-info.java' }
+        def undocumented = codeFiles.findAll { !it.getText('UTF-8').contains('/**') }
+        if (!undocumented.isEmpty()) {
+            throw new GradleException("Production classes without maintenance comments: ${undocumented}")
+        }
+
+        def sourcePackages = codeFiles.collect { it.parentFile }.toSet()
+        def packagesWithoutNotes = sourcePackages.findAll { !new File(it, 'package-info.java').isFile() }
+        if (!packagesWithoutNotes.isEmpty()) {
+            throw new GradleException("Source packages without package-info.java: ${packagesWithoutNotes}")
+        }
+
+        def detachedJavadocs = codeFiles.findAll { sourceFile ->
+            sourceFile.getText('UTF-8') ==~ /(?s).*@[A-Za-z0-9_.]+(?:\([^\r\n]*\))?\s*\R\s*\/\*\*.*/
+        }
+        if (!detachedJavadocs.isEmpty()) {
+            throw new GradleException("Class Javadocs placed after annotations: ${detachedJavadocs}")
+        }
+    }
+}
+
+tasks.register('verifyMixinManifest') {
+    group = 'verification'
+    description = 'Checks that the Mixin manifest and source tree remain synchronized and side-safe.'
+    inputs.file(mixinConfigFile)
+    inputs.dir(mixinSourceRoot)
+
+    doLast {
+        def config = new JsonSlurper().parse(mixinConfigFile)
+        if (config.plugin != 'com.thedivisionisac.taczvr.mixin.TaczVrMixinPlugin') {
+            throw new GradleException('The Mixin config must gate optional Vivecraft client integration.')
+        }
+        def declaredCommon = (config.mixins ?: []) as Set
+        def declaredClient = (config.client ?: []) as Set
+        def declared = declaredCommon + declaredClient
+        def discovered = [] as Set
+
+        fileTree(mixinSourceRoot) {
+            include '**/*.java'
+            exclude '**/package-info.java'
+        }.each { sourceFile ->
+            String source = sourceFile.getText('UTF-8')
+            if (source.contains('@Mixin')) {
+                String relative = mixinSourceRoot.toPath().relativize(sourceFile.toPath()).toString()
+                discovered << relative.replace(File.separatorChar, '.' as char).replaceAll(/\.java$/, '')
+            }
+        }
+
+        def missingSources = declared.findAll { !file("${mixinSourceRoot}/${it.replace('.', '/')}.java").isFile() }
+        def missingManifestEntries = discovered - declared
+        if (!missingSources.isEmpty() || !missingManifestEntries.isEmpty()) {
+            throw new GradleException("Mixin manifest drift. Missing sources: ${missingSources}; undeclared mixins: ${missingManifestEntries}")
+        }
+
+        declaredCommon.each { mixinName ->
+            File sourceFile = file("${mixinSourceRoot}/${mixinName.replace('.', '/')}.java")
+            String source = sourceFile.getText('UTF-8')
+            def clientImports = source.readLines().findAll { line ->
+                line ==~ /\s*import\s+(net\.minecraft\.client|com\.tacz\.guns\.client|org\.vivecraft\.client).*;/
+            }
+            if (!clientImports.isEmpty()) {
+                throw new GradleException("Common Mixin ${mixinName} imports client-only classes: ${clientImports}")
+            }
+        }
+
+        declaredClient.each { mixinName ->
+            File sourceFile = file("${mixinSourceRoot}/${mixinName.replace('.', '/')}.java")
+            String source = sourceFile.getText('UTF-8')
+            def vivecraftTypes = (source =~ /import\s+org\.vivecraft\.[^;]+\.([A-Za-z0-9_]+);/)
+                    .collect { match -> match[1] }
+            boolean directOptionalTarget = vivecraftTypes.any { typeName ->
+                source ==~ /(?s).*@Mixin\s*\(\s*value\s*=\s*${typeName}\.class.*/
+            }
+            if (directOptionalTarget) {
+                throw new GradleException("Optional Vivecraft target ${mixinName} must use @Pseudo and a string target.")
+            }
+        }
+
+        declared.each { mixinName ->
+            File sourceFile = file("${mixinSourceRoot}/${mixinName.replace('.', '/')}.java")
+            String source = sourceFile.getText('UTF-8')
+            boolean hasSoftInjector = source ==~ /(?s).*require\s*=\s*0.*/
+            boolean documentsSoftTarget = source.contains('@Group(') || source.contains('@Dynamic(')
+            if (hasSoftInjector && !documentsSoftTarget) {
+                throw new GradleException(
+                        "Soft injector ${mixinName} must be protected by an @Group alternative or documented @Dynamic target."
+                )
+            }
+        }
+    }
+}
+
+tasks.register('verifyReleaseJar') {
+    group = 'verification'
+    description = 'Checks the reobfuscated addon JAR namespace and required metadata.'
+    dependsOn tasks.named('reobfJar')
+
+    doLast {
+        File outputJar = tasks.named('jar').get().archiveFile.get().asFile
+        if (!outputJar.isFile()) {
+            throw new GradleException("Release JAR not found: ${outputJar}")
+        }
+
+        ZipFile zip = new ZipFile(outputJar)
+        try {
+            def entries = zip.entries().collect { it.name }
+            def forbidden = entries.findAll { it.startsWith('com/tacz/') || it.startsWith('org/vivecraft/') }
+            if (!forbidden.isEmpty()) {
+                throw new GradleException("Upstream classes entered the addon JAR: ${forbidden.take(10)}")
+            }
+            def packagedClasses = entries.findAll { it.endsWith('.class') }
+            def unexpectedClasses = packagedClasses.findAll { !it.startsWith(addonClassPrefix) }
+            if (packagedClasses.isEmpty() || !unexpectedClasses.isEmpty()) {
+                throw new GradleException(
+                        "Release JAR namespace drift. Unexpected classes: ${unexpectedClasses.take(10)}"
+                )
+            }
+            ['META-INF/mods.toml', 'taczvr.mixins.json', 'taczvr.refmap.json', 'LICENSE'].each { required ->
+                if (!entries.contains(required)) {
+                    throw new GradleException("Release JAR is missing ${required}")
+                }
+            }
+            def deferredCompat = entries.findAll { it.toLowerCase(Locale.ROOT).contains('lrtactical') }
+            if (!deferredCompat.isEmpty()) {
+                throw new GradleException("Frozen P1.5 LRTactical content entered the P1 JAR: ${deferredCompat.take(10)}")
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifySourceDocumentation')
+    dependsOn tasks.named('verifyMixinManifest')
+    dependsOn tasks.named('verifyReleaseJar')
+}

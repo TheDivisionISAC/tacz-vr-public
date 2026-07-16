@@ -1,0 +1,13 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.parchmentmc.org' }
+        maven {
+            url = uri("https://maven.aliyun.com/repository/public/")
+        }
+        mavenCentral()
+        gradlePluginPortal()
+        maven { url = 'https://maven.minecraftforge.net/' }
+    }
+}
+
+rootProject.name = 'tacz-vr'

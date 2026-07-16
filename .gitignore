@@ -1,0 +1,12 @@
+TACZ/
+TACZ-Arcana/
+VivecraftMod-1.20.1/
+.gradle/
+.hmcl/
+build/
+run/
+logs/
+out/
+*.ipr
+*.iws
+*.iml
