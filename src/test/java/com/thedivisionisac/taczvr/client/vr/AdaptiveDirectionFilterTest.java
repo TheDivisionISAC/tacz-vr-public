@@ -28,7 +28,7 @@ class AdaptiveDirectionFilterTest {
         AdaptiveDirectionFilter ads = new AdaptiveDirectionFilter();
         long time = 1L;
         hip.update("gun", direction(0.0D), 0.55D, 120.0D, time);
-        ads.update("gun", direction(0.0D), 0.96D, 120.0D, time);
+        ads.update("gun", direction(0.0D), 0.58D, 120.0D, time);
 
         double hipMotion = 0.0D;
         double adsMotion = 0.0D;
@@ -38,14 +38,15 @@ class AdaptiveDirectionFilterTest {
             time += FRAME_NANOS;
             Vec3 raw = direction((frame & 1) == 0 ? 0.75D : -0.75D);
             Vec3 currentHip = hip.update("gun", raw, 0.55D, 120.0D, time);
-            Vec3 currentAds = ads.update("gun", raw, 0.96D, 120.0D, time);
+            Vec3 currentAds = ads.update("gun", raw, 0.58D, 120.0D, time);
             hipMotion += angleDegrees(previousHip, currentHip);
             adsMotion += angleDegrees(previousAds, currentAds);
             previousHip = currentHip;
             previousAds = currentAds;
         }
 
-        assertTrue(adsMotion < hipMotion * 0.8D, "ADS should suppress more alternating jitter");
+        assertTrue(adsMotion < hipMotion, "ADS should suppress more alternating jitter");
+        assertTrue(adsMotion > hipMotion * 0.8D, "ADS should remain only moderately stronger than hip filtering");
     }
 
     @Test

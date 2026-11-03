@@ -3,6 +3,7 @@ package com.thedivisionisac.taczvr.client.render;
 import com.thedivisionisac.taczvr.client.TaczVrClient;
 import com.thedivisionisac.taczvr.config.TaczVrClientConfig;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.item.IGun;
 import com.tacz.guns.client.model.BedrockGunModel;
 import net.minecraft.client.Minecraft;
@@ -16,23 +17,21 @@ import org.vivecraft.client_vr.ClientDataHolderVR;
 
 import javax.annotation.Nullable;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Shares TACZ's animated hand anchors with Vivecraft inside one render frame. All state is render-thread-only and
  * separated by eye pass so neither stereo matrices nor animation poses leak into the other eye.
+ * Functional-anchor history belongs to the actual model instance and is discarded on resource/session reset.
  */
 public final class VrGunHandPoseCache {
     private static final float REGULAR_ARM_HALF_WIDTH = 0.375F;
     private static final float SLIM_ARM_HALF_WIDTH = 0.34375F;
     private static final float ARM_LENGTH = 0.75F;
-    private static final int LEFT_ANCHOR = 1;
-    private static final int RIGHT_ANCHOR = 2;
     private static final Map<RenderPass, PassPose> PASS_POSES = new EnumMap<>(RenderPass.class);
     private static final Map<RenderPass, AnimatedHandState> MAIN_HAND_STATES = new EnumMap<>(RenderPass.class);
     private static final Map<RenderPass, AnimatedHandState> SUPPORT_ANIMATION_STATES = new EnumMap<>(RenderPass.class);
-    private static final Map<ResourceLocation, Integer> KNOWN_ANCHORS = new HashMap<>();
+    private static final ModelHandAnchorHistory<BedrockGunModel> ANCHOR_HISTORY = new ModelHandAnchorHistory<>();
 
     private static boolean supportHandSnapped;
     private static ResourceLocation snappedGunId;
@@ -44,6 +43,7 @@ public final class VrGunHandPoseCache {
         PASS_POSES.clear();
         MAIN_HAND_STATES.clear();
         SUPPORT_ANIMATION_STATES.clear();
+        ANCHOR_HISTORY.reset();
         releaseSupportHand();
     }
 
@@ -74,13 +74,14 @@ public final class VrGunHandPoseCache {
         PassPose passPose = getCurrentPass(model);
         if (passPose != null) {
             passPose.leftPalmPosition = getPalmPosition(poseStack.last().pose(), false);
-            rememberAnchor(passPose.gunId, LEFT_ANCHOR);
+            ANCHOR_HISTORY.recordLeft(model);
         }
     }
 
     public static void captureRightAnchor(BedrockGunModel model, PoseStack poseStack) {
         if (!TaczVrClientConfig.ENABLE_VR_SHOOT_HAND_ANIMATION.get()
                 && !TaczVrClientConfig.ENABLE_VR_ANIMATION_HAND_SNAP.get()
+                && !TaczVrClientConfig.ENABLE_VR_NEAR_MAIN_HAND_SUPPORT_SNAP.get()
                 && !VrGunHandVisibility.keepsMainHandOnGrip()) {
             return;
         }
@@ -89,12 +90,16 @@ public final class VrGunHandPoseCache {
             return;
         }
         passPose.rightPalmPosition = getPalmPosition(poseStack.last().pose(), true);
-        rememberAnchor(passPose.gunId, RIGHT_ANCHOR);
+        ANCHOR_HISTORY.recordRight(model);
     }
 
     public static boolean hasKnownAnimationAnchors(ItemStack stack) {
+        return ANCHOR_HISTORY.hasBoth(currentGunModel(stack));
+    }
+
+    public static boolean isSupportHandSnapped(ItemStack stack) {
         ResourceLocation gunId = getGunId(stack);
-        return gunId != null && KNOWN_ANCHORS.getOrDefault(gunId, 0) == (LEFT_ANCHOR | RIGHT_ANCHOR);
+        return supportHandSnapped && gunId != null && gunId.equals(snappedGunId);
     }
 
     public static boolean applySupportHandSnap(PoseStack poseStack, ItemStack gunStack) {
@@ -110,7 +115,7 @@ public final class VrGunHandPoseCache {
 
         LocalPlayer player = Minecraft.getInstance().player;
         boolean forceAnimation = player != null
-                && VrGunHandVisibility.isForcedAnimationSnapActive(player, gunStack);
+                && VrGunHandVisibility.isForcedSupportHandSnapActive(player, gunStack);
         Vector3f currentPosition = poseStack.last().pose().getTranslation(new Vector3f());
         Vector3f targetPosition = passPose.leftPalmPosition;
         if (forceAnimation) {
@@ -128,13 +133,23 @@ public final class VrGunHandPoseCache {
         if (snappedGunId != null && !snappedGunId.equals(passPose.gunId)) {
             releaseSupportHand();
         }
-        float distance = currentPosition.distance(targetPosition);
+        float leftAnchorDistance = currentPosition.distance(targetPosition);
+        float mainHandDistance = passPose.rightPalmPosition == null
+                ? Float.POSITIVE_INFINITY
+                : currentPosition.distance(passPose.rightPalmPosition);
         float threshold = (supportHandSnapped
                 ? TaczVrClientConfig.VR_SUPPORT_HAND_SNAP_EXIT_DISTANCE
                 : TaczVrClientConfig.VR_SUPPORT_HAND_SNAP_ENTER_DISTANCE).get().floatValue();
         boolean supportSnapEnabled = TaczVrClientConfig.ENABLE_VR_SUPPORT_HAND_SNAP.get()
                 || TaczVrClientConfig.ENABLE_VR_SHIELD_HAND_SNAP.get();
-        boolean attachToGrip = supportSnapEnabled && distance <= threshold;
+        boolean attachToGrip = VrSupportHandSnapPolicy.shouldAttach(
+                supportSnapEnabled,
+                TaczVrClientConfig.ENABLE_VR_NEAR_MAIN_HAND_SUPPORT_SNAP.get(),
+                isNonPistol(gunStack),
+                leftAnchorDistance,
+                mainHandDistance,
+                threshold
+        );
         if (!attachToGrip) {
             releaseSupportHand();
             return applyAnimatedPalmOffset(
@@ -254,10 +269,6 @@ public final class VrGunHandPoseCache {
         return true;
     }
 
-    private static void rememberAnchor(ResourceLocation gunId, int anchor) {
-        KNOWN_ANCHORS.merge(gunId, anchor, (known, captured) -> known | captured);
-    }
-
     private static void releaseSupportHand() {
         supportHandSnapped = false;
         snappedGunId = null;
@@ -265,6 +276,7 @@ public final class VrGunHandPoseCache {
 
     private static boolean isAnyAnimatedHandFeatureEnabled() {
         return TaczVrClientConfig.ENABLE_VR_SUPPORT_HAND_SNAP.get()
+                || TaczVrClientConfig.ENABLE_VR_NEAR_MAIN_HAND_SUPPORT_SNAP.get()
                 || TaczVrClientConfig.ENABLE_VR_SHIELD_HAND_SNAP.get()
                 || TaczVrClientConfig.ENABLE_VR_SHOOT_HAND_ANIMATION.get()
                 || TaczVrClientConfig.ENABLE_VR_ANIMATION_HAND_SNAP.get()
@@ -294,13 +306,26 @@ public final class VrGunHandPoseCache {
         ClientDataHolderVR holder = ClientDataHolderVR.getInstance();
         PassPose pose = PASS_POSES.get(holder.currentPass);
         ResourceLocation gunId = getGunId(stack);
-        return pose != null && pose.frameIndex == holder.frameIndex && pose.gunId.equals(gunId) ? pose : null;
+        return pose != null && pose.frameIndex == holder.frameIndex && pose.gunId.equals(gunId)
+                && pose.model == currentGunModel(stack) ? pose : null;
+    }
+
+    @Nullable
+    private static BedrockGunModel currentGunModel(ItemStack stack) {
+        return TimelessAPI.getGunDisplay(stack).map(display -> display.getGunModel()).orElse(null);
     }
 
     @Nullable
     private static ResourceLocation getGunId(ItemStack stack) {
         IGun gun = IGun.getIGunOrNull(stack);
         return gun == null ? null : gun.getGunId(stack);
+    }
+
+    private static boolean isNonPistol(ItemStack stack) {
+        ResourceLocation gunId = getGunId(stack);
+        return gunId != null && TimelessAPI.getCommonGunIndex(gunId)
+                .map(index -> !"pistol".equalsIgnoreCase(index.getType()))
+                .orElse(false);
     }
 
     private static final class PassPose {

@@ -1,6 +1,7 @@
 package com.thedivisionisac.taczvr.mixin.client;
 
 import com.thedivisionisac.taczvr.client.render.VrGunHandPoseCache;
+import com.thedivisionisac.taczvr.client.compat.lrtactical.LrTacticalVrHandPoseCache;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.tacz.guns.client.model.BedrockAnimatedModel;
@@ -21,12 +22,17 @@ abstract class RightHandRenderMixin {
     @Final
     private BedrockAnimatedModel bedrockGunModel;
 
-    @Inject(method = "render", at = @At("HEAD"), require = 1)
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true, require = 1)
     private void taczvr$captureMainHandAnchor(PoseStack poseStack, VertexConsumer vertexBuffer,
                                               ItemDisplayContext transformType, int light, int overlay,
                                               CallbackInfo callback) {
-        if (transformType.firstPerson() && this.bedrockGunModel instanceof BedrockGunModel gunModel) {
+        if (!transformType.firstPerson()) {
+            return;
+        }
+        if (this.bedrockGunModel instanceof BedrockGunModel gunModel) {
             VrGunHandPoseCache.captureRightAnchor(gunModel, poseStack);
+        } else if (LrTacticalVrHandPoseCache.captureRightAnchor(this.bedrockGunModel, poseStack)) {
+            callback.cancel();
         }
     }
 }

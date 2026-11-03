@@ -3,6 +3,7 @@ package com.thedivisionisac.taczvr.client.control;
 import com.thedivisionisac.taczvr.client.render.VrGunHandVisibility;
 import com.thedivisionisac.taczvr.config.TaczVrClientConfig;
 import com.thedivisionisac.taczvr.config.VrHandDisplayMode;
+import com.thedivisionisac.taczvr.config.VrStabilizationLevel;
 import com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator;
 import com.tacz.guns.api.item.IGun;
 import com.tacz.guns.client.gui.GunRefitScreen;
@@ -91,6 +92,16 @@ public final class VrGunRadialActions {
 
     public static boolean isShieldHandSnapEnabled() {
         return TaczVrClientConfig.ENABLE_VR_SHIELD_HAND_SNAP.get();
+    }
+
+    public static int currentStabilizationLevel() {
+        return VrStabilizationLevel.clamp(TaczVrClientConfig.VR_STABILIZATION_LEVEL.get());
+    }
+
+    public static void setStabilizationLevel(int level) {
+        if (getGunPlayer() != null) {
+            TaczVrClientConfig.VR_STABILIZATION_LEVEL.set(VrStabilizationLevel.clamp(level));
+        }
     }
 
     private static LocalPlayer getGunPlayer() {

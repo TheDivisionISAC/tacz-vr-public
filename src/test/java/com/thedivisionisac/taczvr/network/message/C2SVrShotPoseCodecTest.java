@@ -17,23 +17,36 @@ class C2SVrShotPoseCodecTest {
         C2SVrShotPose original = C2SVrShotPose.pose(
                 4123L,
                 new Vec3(0.25D, -0.5D, 0.75D),
-                new Vec3(12.125D, 64.5D, -7.25D)
+                new Vec3(12.125D, 64.5D, -7.25D),
+                true
         );
 
         C2SVrShotPose decoded = roundTrip(original);
 
         assertEquals(C2SVrShotPose.PROTOCOL_VERSION, decoded.protocolVersion());
         assertEquals(4123L, decoded.taczTimestamp());
-        assertEquals(C2SVrShotPose.FLAG_DIRECTION | C2SVrShotPose.FLAG_MUZZLE, decoded.flags());
+        assertEquals(
+                C2SVrShotPose.FLAG_DIRECTION
+                        | C2SVrShotPose.FLAG_MUZZLE
+                        | C2SVrShotPose.FLAG_SUPPORT_HAND_SNAPPED,
+                decoded.flags()
+        );
+        assertEquals(true, decoded.supportHandSnapped());
         assertVecEquals(original.direction(), decoded.direction(), FLOAT_TOLERANCE);
         assertVecEquals(original.muzzlePosition(), decoded.muzzlePosition(), 0.0D);
     }
 
     @Test
     void roundTripsDirectionWithoutMuzzle() {
-        C2SVrShotPose decoded = roundTrip(C2SVrShotPose.pose(9L, new Vec3(0.0D, 0.0D, -1.0D), null));
+        C2SVrShotPose decoded = roundTrip(C2SVrShotPose.pose(
+                9L,
+                new Vec3(0.0D, 0.0D, -1.0D),
+                null,
+                false
+        ));
 
         assertEquals(C2SVrShotPose.FLAG_DIRECTION, decoded.flags());
+        assertEquals(false, decoded.supportHandSnapped());
         assertVecEquals(new Vec3(0.0D, 0.0D, -1.0D), decoded.direction(), FLOAT_TOLERANCE);
         assertNull(decoded.muzzlePosition());
     }

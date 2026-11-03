@@ -1,6 +1,7 @@
 package com.thedivisionisac.taczvr.mixin.client;
 
 import com.thedivisionisac.taczvr.client.TaczVrClient;
+import com.thedivisionisac.taczvr.client.compat.lrtactical.LrTacticalVrItemSupport;
 import com.thedivisionisac.taczvr.client.vr.VrGunAimStabilization;
 import com.thedivisionisac.taczvr.config.TaczVrClientConfig;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -21,7 +22,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Preserves Vivecraft's physical controller origin and item scale while removing generic held-item translation that is
- * incompatible with TACZ's righthand_pos anchor.
+ * incompatible with TACZ and LRTactical {@code righthand_pos} anchors.
  */
 @Pseudo
 @Mixin(targets = "org.vivecraft.client_vr.render.VivecraftItemRendering", remap = false)
@@ -40,10 +41,13 @@ abstract class VivecraftItemRenderingMixin {
                                                        boolean mainHand, AbstractClientPlayer player,
                                                        float equippedProgress, float partialTick, ItemStack stack,
                                                        InteractionHand hand, CallbackInfo callback) {
-        if (taczvr$isMainHandGun(mainHand, hand, stack)) {
+        boolean mainHandGun = taczvr$isMainHandGun(mainHand, hand, stack);
+        if (mainHandGun || taczvr$isMainHandLrTacticalItem(mainHand, hand, stack)) {
             Matrix4f controllerPose = new Matrix4f(poseStack.last().pose());
             Matrix3f controllerNormal = new Matrix3f(poseStack.last().normal());
-            VrGunAimStabilization.stabilizeControllerPose(stack, controllerPose, controllerNormal);
+            if (mainHandGun) {
+                VrGunAimStabilization.stabilizeControllerPose(stack, controllerPose, controllerNormal);
+            }
             TACZVR_CONTROLLER_POSE.set(controllerPose);
             TACZVR_CONTROLLER_NORMAL.set(controllerNormal);
         } else {
@@ -70,13 +74,20 @@ abstract class VivecraftItemRenderingMixin {
         Matrix3f controllerNormal = TACZVR_CONTROLLER_NORMAL.get();
         TACZVR_CONTROLLER_POSE.remove();
         TACZVR_CONTROLLER_NORMAL.remove();
-        if (controllerPose == null || controllerNormal == null || !taczvr$isMainHandGun(mainHand, hand, stack)) {
+        boolean mainHandGun = taczvr$isMainHandGun(mainHand, hand, stack);
+        boolean mainHandLrTacticalItem = taczvr$isMainHandLrTacticalItem(mainHand, hand, stack);
+        if (controllerPose == null
+                || controllerNormal == null
+                || (!mainHandGun && !mainHandLrTacticalItem)) {
             return;
         }
 
         Matrix4f heldItemPose = poseStack.last().pose();
         Vector3f heldItemScale = heldItemPose.getScale(new Vector3f());
-        float scale = heldItemScale.x() * TaczVrClientConfig.VR_GUN_SCALE_MULTIPLIER.get().floatValue();
+        float scale = heldItemScale.x();
+        if (mainHandGun) {
+            scale *= TaczVrClientConfig.VR_GUN_SCALE_MULTIPLIER.get().floatValue();
+        }
         if (!Float.isFinite(scale)) {
             scale = 1.0F;
         }
@@ -94,5 +105,14 @@ abstract class VivecraftItemRenderingMixin {
                 && TaczVrClientConfig.ENABLE_VR_GUN_RENDERING.get()
                 && TaczVrClient.vivecraft().isVrActive()
                 && IGun.getIGunOrNull(stack) != null;
+    }
+
+    @Unique
+    private static boolean taczvr$isMainHandLrTacticalItem(boolean mainHand, InteractionHand hand,
+                                                            ItemStack stack) {
+        return mainHand
+                && hand == InteractionHand.MAIN_HAND
+                && TaczVrClient.vivecraft().isVrActive()
+                && LrTacticalVrItemSupport.isRenderSupported(stack);
     }
 }

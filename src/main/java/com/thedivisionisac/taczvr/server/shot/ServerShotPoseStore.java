@@ -8,6 +8,7 @@ import java.util.UUID;
 
 /**
  * Server-thread-confined, bounded, single-use pose store keyed by player UUID and TACZ timestamp.
+ * Consumption rechecks the absolute muzzle against current geometry, preserving direction and grip on fallback.
  */
 public final class ServerShotPoseStore {
     private static final PendingShotPoseStore<UUID, ValidatedShotPose> PENDING = new PendingShotPoseStore<>();
@@ -31,7 +32,9 @@ public final class ServerShotPoseStore {
         long gameTime = player.serverLevel().getGameTime();
         return PENDING.consume(
                 player.getUUID(), timestamp, gameTime, TaczVrServerConfig.SHOT_POSE_TTL_TICKS.get()
-        );
+        ).map(pose -> pose.revalidateMuzzle(
+                candidate -> ServerShotPoseValidator.validateMuzzle(player, candidate)
+        ));
     }
 
     public static void clear(UUID playerId) {

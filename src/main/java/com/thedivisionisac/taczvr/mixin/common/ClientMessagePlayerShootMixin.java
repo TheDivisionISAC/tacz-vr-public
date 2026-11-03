@@ -40,6 +40,10 @@ abstract class ClientMessagePlayerShootMixin {
                 ));
             }
         }
+        if (operator instanceof ServerPlayer player) {
+            TaczVr.LOGGER.debug("Missing VR shot pose for {} at TACZ timestamp {}; using original TACZ shot.",
+                    player.getScoreboardName(), timestamp);
+        }
         return operator.shoot(originalPitch, originalYaw, timestamp, chargeProgress);
     }
 }

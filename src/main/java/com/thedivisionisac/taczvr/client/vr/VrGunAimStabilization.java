@@ -2,9 +2,14 @@ package com.thedivisionisac.taczvr.client.vr;
 
 import com.thedivisionisac.taczvr.client.TaczVrClient;
 import com.thedivisionisac.taczvr.config.TaczVrClientConfig;
+import com.thedivisionisac.taczvr.config.VrStabilizationLevel;
+import com.thedivisionisac.taczvr.config.VrMagnificationStabilization;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.tacz.guns.api.DefaultAssets;
+import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator;
 import com.tacz.guns.api.item.IGun;
+import com.tacz.guns.api.item.attachment.AttachmentType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.resources.ResourceLocation;
@@ -16,21 +21,34 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Shares one bounded six-degree-of-freedom stabilization result between first-person rendering and immutable TACZ shot
  * snapshots. Direction and position filters release on deliberate motion and keep strict lag limits from tracking.
+ * Selected optical magnification optionally scales the common profile after the user's overall slider. It does not
+ * depend on aperture progress, so opening/closing the lens cannot continually reset the filter source. Zoom changes
+ * naturally invalidate the profile-keyed render/shot cache instead of reusing a previous strength's shot snapshot.
  */
 public final class VrGunAimStabilization {
-    private static final AdaptiveDirectionFilter DIRECTION_FILTER = new AdaptiveDirectionFilter();
-    private static final AdaptivePositionFilter POSITION_FILTER = new AdaptivePositionFilter();
+    private static final long MAXIMUM_SHOT_CACHE_AGE_NANOS = TimeUnit.MILLISECONDS.toNanos(250L);
+    private static final VrAimStabilizationState STATE = new VrAimStabilizationState();
+    private static final VrRelativeRenderStabilizationState RELATIVE_RENDER_STATE =
+            new VrRelativeRenderStabilizationState();
+    private static final VrAimStabilizationDiagnostics DIAGNOSTICS = new VrAimStabilizationDiagnostics();
+    private static final VrFullPoseDiagnostics FULL_POSE_DIAGNOSTICS = new VrFullPoseDiagnostics();
     private static final ThreadLocal<VrRenderPoseCorrection> RENDER_CORRECTION = new ThreadLocal<>();
 
     private VrGunAimStabilization() {
     }
 
     public static VrShotPose stabilizeShotPose(LocalPlayer player, ItemStack stack, VrShotPose rawPose) {
-        return stabilize(player, stack, rawPose, System.nanoTime());
+        StabilizationProfile profile = profile(player, stack);
+        if (profile == null) {
+            reset();
+            return rawPose;
+        }
+        return STATE.resolveShotPose(profile, rawPose, System.nanoTime(), MAXIMUM_SHOT_CACHE_AGE_NANOS);
     }
 
     public static void stabilizeControllerPose(ItemStack stack, Matrix4f controllerPose, Matrix3f controllerNormal) {
@@ -41,16 +59,74 @@ public final class VrGunAimStabilization {
             return;
         }
 
-        Optional<VrShotPose> rawRenderPose = TaczVrClient.vivecraft().getMainHandRenderPose();
+        boolean viewRelativeStabilization = TaczVrClientConfig.ENABLE_VR_VIEW_RELATIVE_STABILIZATION.get();
+        Optional<VrRenderTrackingSnapshot> tracking = viewRelativeStabilization || FULL_POSE_DIAGNOSTICS.isEnabled()
+                ? TaczVrClient.vivecraft().getRenderTrackingSnapshot()
+                : Optional.empty();
+        Optional<VrShotPose> rawRenderPose = tracking.map(VrRenderTrackingSnapshot::handPose);
+        if (rawRenderPose.isEmpty()) {
+            rawRenderPose = TaczVrClient.vivecraft().getMainHandRenderPose();
+        }
         if (rawRenderPose.isEmpty()) {
             reset();
             return;
         }
+        StabilizationProfile profile = profile(player, stack);
+        if (profile == null) {
+            reset();
+            return;
+        }
         VrShotPose raw = rawRenderPose.get();
-        VrShotPose stabilized = stabilize(player, stack, raw, System.nanoTime());
+        long frameIndex = TaczVrClient.vivecraft().getRenderFrameIndex().orElse(Long.MIN_VALUE);
+        long nowNanos = System.nanoTime();
+        VrShotPose stabilized = STATE.updateRenderPose(
+                profile,
+                frameIndex,
+                raw,
+                profile.strength(),
+                profile.maximumPositionOffset(),
+                profile.directionReleaseSpeed(),
+                profile.positionReleaseSpeed(),
+                nowNanos
+        );
+        DIAGNOSTICS.record(frameIndex, profile.gunId(), profile.aiming(), raw, stabilized, nowNanos);
         Matrix4f rawControllerPose = new Matrix4f(controllerPose);
         Matrix3f rawControllerNormal = new Matrix3f(controllerNormal);
-        applyWorldPoseCorrection(controllerPose, controllerNormal, raw, stabilized);
+        if (viewRelativeStabilization && tracking.isPresent()) {
+            VrRelativeRenderPose rawRelativePose = VrRelativeRenderPose.from(tracking.get());
+            VrRelativeRenderPose stabilizedAimPose = VrRelativeRenderPose.fromStabilizedAim(
+                    tracking.get(), stabilized
+            );
+            VrRelativeRenderPose relativePose = RELATIVE_RENDER_STATE.update(
+                    profile,
+                    frameIndex,
+                    stabilizedAimPose,
+                    profile.strength(),
+                    profile.maximumViewRotationOffset(),
+                    profile.maximumViewPositionOffset(),
+                    profile.directionReleaseSpeed(),
+                    profile.positionReleaseSpeed(),
+                    nowNanos
+            );
+            VrRelativeRenderPoseCorrection.apply(
+                    controllerPose, controllerNormal, rawRelativePose, relativePose
+            );
+        } else {
+            RELATIVE_RENDER_STATE.reset();
+            applyWorldPoseCorrection(controllerPose, controllerNormal, raw, stabilized);
+        }
+        if (tracking.isPresent()) {
+            FULL_POSE_DIAGNOSTICS.record(
+                    frameIndex,
+                    profile.gunId(),
+                    profile.aiming(),
+                    TaczVrClient.vivecraft().getRenderPassName(),
+                    tracking.get(),
+                    rawControllerPose,
+                    controllerPose,
+                    nowNanos
+            );
+        }
         RENDER_CORRECTION.set(VrRenderPoseCorrection.between(
                 rawControllerPose, rawControllerNormal, controllerPose, controllerNormal
         ));
@@ -69,46 +145,62 @@ public final class VrGunAimStabilization {
     }
 
     public static void reset() {
-        DIRECTION_FILTER.reset();
-        POSITION_FILTER.reset();
+        STATE.reset();
+        RELATIVE_RENDER_STATE.reset();
+        DIAGNOSTICS.reset();
+        FULL_POSE_DIAGNOSTICS.reset();
         discardMainHandRenderCorrection();
     }
 
-    private static VrShotPose stabilize(LocalPlayer player, ItemStack stack, VrShotPose rawPose, long nowNanos) {
+    private static StabilizationProfile profile(LocalPlayer player, ItemStack stack) {
         if (!TaczVrClientConfig.ENABLE_VR_AIM_STABILIZATION.get()) {
-            reset();
-            return rawPose;
+            return null;
         }
         IGun gun = IGun.getIGunOrNull(stack);
         if (gun == null) {
-            reset();
-            return rawPose;
+            return null;
         }
 
         ResourceLocation gunId = gun.getGunId(stack);
         boolean aiming = IClientPlayerGunOperator.fromLocalPlayer(player).isAim();
-        double strength = aiming
+        double validatedStrength = aiming
                 ? TaczVrClientConfig.VR_ADS_STABILIZATION_STRENGTH.get()
                 : TaczVrClientConfig.VR_HIP_STABILIZATION_STRENGTH.get();
+        double strength = VrStabilizationLevel.effectiveStrength(
+                validatedStrength,
+                TaczVrClientConfig.VR_STABILIZATION_LEVEL.get()
+        );
+        boolean scaleWithZoom = TaczVrClientConfig.ENABLE_VR_MAGNIFICATION_SCALED_STABILIZATION.get();
+        strength = VrMagnificationStabilization.effectiveStrength(
+                strength, scaleWithZoom ? opticalMagnification(gun, stack) : 1.0D, scaleWithZoom
+        );
         double maximumPositionOffset = aiming
                 ? TaczVrClientConfig.VR_ADS_STABILIZATION_MAX_POSITION_OFFSET.get()
                 : TaczVrClientConfig.VR_HIP_STABILIZATION_MAX_POSITION_OFFSET.get();
-        Vec3 direction = DIRECTION_FILTER.update(
+        double maximumViewRotationOffset = aiming
+                ? TaczVrClientConfig.VR_ADS_VIEW_ROTATION_MAX_OFFSET.get()
+                : TaczVrClientConfig.VR_HIP_VIEW_ROTATION_MAX_OFFSET.get();
+        double maximumViewPositionOffset = aiming
+                ? TaczVrClientConfig.VR_ADS_VIEW_POSITION_MAX_OFFSET.get()
+                : TaczVrClientConfig.VR_HIP_VIEW_POSITION_MAX_OFFSET.get();
+        return new StabilizationProfile(
                 gunId,
-                rawPose.direction(),
-                strength,
-                TaczVrClientConfig.VR_STABILIZATION_RELEASE_SPEED.get(),
-                nowNanos
-        );
-        Vec3 position = POSITION_FILTER.update(
-                gunId,
-                rawPose.position(),
                 strength,
                 maximumPositionOffset,
+                maximumViewRotationOffset,
+                maximumViewPositionOffset,
+                TaczVrClientConfig.VR_STABILIZATION_RELEASE_SPEED.get(),
                 TaczVrClientConfig.VR_STABILIZATION_POSITION_RELEASE_SPEED.get(),
-                nowNanos
+                aiming
         );
-        return new VrShotPose(position, direction);
+    }
+
+    private static double opticalMagnification(IGun gun, ItemStack stack) {
+        ResourceLocation scope = gun.getAttachmentId(stack, AttachmentType.SCOPE);
+        if (DefaultAssets.isEmptyAttachmentId(scope)) scope = gun.getBuiltInAttachmentId(stack, AttachmentType.SCOPE);
+        if (DefaultAssets.isEmptyAttachmentId(scope)
+                || TimelessAPI.getClientAttachmentIndex(scope).filter(index -> index.isScope()).isEmpty()) return 1.0D;
+        return gun.getAimingZoom(stack);
     }
 
     private static void applyWorldPoseCorrection(Matrix4f controllerPose, Matrix3f controllerNormal,
@@ -133,5 +225,11 @@ public final class VrGunAimStabilization {
 
     private static Vector3f toVector(Vec3 direction) {
         return new Vector3f((float) direction.x, (float) direction.y, (float) direction.z);
+    }
+
+    /** All settings that define one continuous filter source and its matching shot snapshot. */
+    private record StabilizationProfile(ResourceLocation gunId, double strength, double maximumPositionOffset,
+                                        double maximumViewRotationOffset, double maximumViewPositionOffset,
+                                        double directionReleaseSpeed, double positionReleaseSpeed, boolean aiming) {
     }
 }

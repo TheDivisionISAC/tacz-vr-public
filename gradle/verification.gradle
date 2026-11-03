@@ -146,10 +146,22 @@ tasks.register('verifyMixinManifest') {
 
 tasks.register('verifyReleaseJar') {
     group = 'verification'
-    description = 'Checks the reobfuscated addon JAR namespace and required metadata.'
+    description = 'Checks the reobfuscated addon JAR namespace, optional-compat isolation, and required metadata.'
     dependsOn tasks.named('reobfJar')
 
     doLast {
+        def forbiddenDependencies = configurations.collectMany { configuration ->
+            configuration.allDependencies.findAll { dependency ->
+                String coordinate = "${dependency.group ?: ''}:${dependency.name ?: ''}".toLowerCase(Locale.ROOT)
+                coordinate.contains('lrtactical') || coordinate.contains('lesraisins')
+            }.collect { dependency -> "${dependency.group ?: ''}:${dependency.name ?: ''}" }
+        }.toSet()
+        if (!forbiddenDependencies.isEmpty()) {
+            throw new GradleException(
+                    "LRTactical must remain an optional runtime interop without a declared dependency: ${forbiddenDependencies}"
+            )
+        }
+
         File outputJar = tasks.named('jar').get().archiveFile.get().asFile
         if (!outputJar.isFile()) {
             throw new GradleException("Release JAR not found: ${outputJar}")
@@ -158,9 +170,18 @@ tasks.register('verifyReleaseJar') {
         ZipFile zip = new ZipFile(outputJar)
         try {
             def entries = zip.entries().collect { it.name }
-            def forbidden = entries.findAll { it.startsWith('com/tacz/') || it.startsWith('org/vivecraft/') }
+            def forbiddenPrefixes = [
+                    'com/tacz/',
+                    'org/vivecraft/',
+                    'me/xjqsh/lrtactical/',
+                    'assets/lrtactical/',
+                    'data/lrtactical/'
+            ]
+            def forbidden = entries.findAll { entry ->
+                forbiddenPrefixes.any { prefix -> entry.startsWith(prefix) }
+            }
             if (!forbidden.isEmpty()) {
-                throw new GradleException("Upstream classes entered the addon JAR: ${forbidden.take(10)}")
+                throw new GradleException("Upstream classes or assets entered the addon JAR: ${forbidden.take(10)}")
             }
             def packagedClasses = entries.findAll { it.endsWith('.class') }
             def unexpectedClasses = packagedClasses.findAll { !it.startsWith(addonClassPrefix) }
@@ -174,10 +195,6 @@ tasks.register('verifyReleaseJar') {
                     throw new GradleException("Release JAR is missing ${required}")
                 }
             }
-            def deferredCompat = entries.findAll { it.toLowerCase(Locale.ROOT).contains('lrtactical') }
-            if (!deferredCompat.isEmpty()) {
-                throw new GradleException("Frozen P1.5 LRTactical content entered the P1 JAR: ${deferredCompat.take(10)}")
-            }
         } finally {
             zip.close()
         }
@@ -188,4 +205,14 @@ tasks.named('check') {
     dependsOn tasks.named('verifySourceDocumentation')
     dependsOn tasks.named('verifyMixinManifest')
     dependsOn tasks.named('verifyReleaseJar')
+}
+
+// Explicit opt-in: requires a desktop OpenGL driver, but creates only a hidden tiny window and never starts VR.
+tasks.register('scopeGlSmokeTest', JavaExec) {
+    group = 'verification'
+    description = 'Checks scope stencil ownership and independent GL state in a hidden native context.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.thedivisionisac.taczvr.client.vr.VrScopeLateDivisionRendererGlProbe'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = java.toolchain.languageVersion }
 }

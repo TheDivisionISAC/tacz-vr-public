@@ -1,34 +1,30 @@
 package com.thedivisionisac.taczvr.client.control;
 
-/**
- * Tracks whether one radial-menu session consumed an action so an empty release can mean reload.
- */
+/** Tracks which optional TACZ VR menu owns the current Vivecraft radial session. */
 public final class VrGunRadialState {
-    private static boolean gunMenuActive;
-    private static boolean actionSelected;
+    public enum MenuKind {
+        NONE,
+        TACZ_GUN,
+        LRTACTICAL_ITEM
+    }
 
+    private static MenuKind activeMenu = MenuKind.NONE;
     private VrGunRadialState() {
     }
 
     public static boolean isGunMenuActive() {
-        return gunMenuActive;
+        return activeMenu != MenuKind.NONE;
     }
 
-    public static void beginGunMenu(boolean active) {
-        gunMenuActive = active;
-        actionSelected = false;
+    public static boolean isLrTacticalMenuActive() {
+        return activeMenu == MenuKind.LRTACTICAL_ITEM;
     }
 
-    public static void markActionSelected() {
-        if (gunMenuActive) {
-            actionSelected = true;
-        }
+    public static void beginMenu(MenuKind menuKind) {
+        activeMenu = menuKind;
     }
 
-    public static boolean closeGunMenuWithoutSelection() {
-        boolean emptyClose = gunMenuActive && !actionSelected;
-        gunMenuActive = false;
-        actionSelected = false;
-        return emptyClose;
+    public static void closeMenu() {
+        activeMenu = MenuKind.NONE;
     }
 }

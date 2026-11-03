@@ -1,6 +1,7 @@
 package com.thedivisionisac.taczvr.client.render;
 
 import com.thedivisionisac.taczvr.client.TaczVrClient;
+import com.thedivisionisac.taczvr.client.compat.lrtactical.LrTacticalVrHandPoseCache;
 import com.thedivisionisac.taczvr.config.TaczVrClientConfig;
 import com.thedivisionisac.taczvr.config.VrHandDisplayMode;
 import com.tacz.guns.api.TimelessAPI;
@@ -99,6 +100,7 @@ public final class VrGunHandVisibility {
         clearAnimationLatch();
         clearManipulationLatch();
         VrGunHandPoseCache.resetTransientState();
+        LrTacticalVrHandPoseCache.resetTransientState();
     }
 
     public static boolean isForcedAnimationSnapActive(LocalPlayer player, ItemStack stack) {
@@ -106,6 +108,14 @@ public final class VrGunHandVisibility {
                 && TaczVrClientConfig.ENABLE_VR_ANIMATION_HAND_SNAP.get()
                 && VrGunHandPoseCache.hasKnownAnimationAnchors(stack)
                 && isAuthoredHandAnimationActive(player, stack);
+    }
+
+    public static boolean isForcedSupportHandSnapActive(LocalPlayer player, ItemStack stack) {
+        return usesVivecraftAnimationSnapMode()
+                && TaczVrClientConfig.ENABLE_VR_ANIMATION_HAND_SNAP.get()
+                && TaczVrClientConfig.USE_TACZ_HANDS_DURING_MANIPULATION.get()
+                && VrGunHandPoseCache.hasKnownAnimationAnchors(stack)
+                && isManipulationAnimationActive(player, stack);
     }
 
     public static boolean isAuthoredHandAnimationActive(LocalPlayer player, ItemStack stack) {
@@ -174,12 +184,25 @@ public final class VrGunHandVisibility {
         }
         for (int track : allocatedTracks) {
             ObjectAnimationRunner runner = controller.getAnimation(track);
-            if (isActiveRunnerNamed(runner, RELOAD_ANIMATION_TOKEN)
-                    || isActiveRunnerNamed(runner, INSPECT_ANIMATION_TOKEN)) {
+            if (isActiveRunnerContaining(runner, RELOAD_ANIMATION_TOKEN)
+                    || isActiveRunnerContaining(runner, INSPECT_ANIMATION_TOKEN)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isActiveRunnerContaining(ObjectAnimationRunner runner, String token) {
+        if (runner == null
+                || !(runner.isRunning() || runner.isHolding() || runner.isPausing() || runner.isTransitioning())) {
+            return false;
+        }
+        if (runner.getAnimation().name.toLowerCase(Locale.ROOT).contains(token)) {
+            return true;
+        }
+        ObjectAnimationRunner transitionTarget = runner.getTransitionTo();
+        return transitionTarget != null
+                && transitionTarget.getAnimation().name.toLowerCase(Locale.ROOT).contains(token);
     }
 
     private static boolean isActiveRunnerNamed(ObjectAnimationRunner runner, String token) {

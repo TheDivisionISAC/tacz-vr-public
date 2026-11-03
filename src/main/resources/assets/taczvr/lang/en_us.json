@@ -4,12 +4,14 @@
   "menu.taczvr.fire_select": "Fire Mode",
   "menu.taczvr.refit": "Attachments",
   "menu.taczvr.drop": "Drop Weapon",
+  "menu.taczvr.drop_item": "Drop Item",
   "menu.taczvr.hand_mode": "Hands: %s",
   "menu.taczvr.hand_mode.vivecraft_snap": "VR Snap",
   "menu.taczvr.hand_mode.hidden": "Hidden",
-  "menu.taczvr.hand_mode.tacz_during_manipulation": "TACZ Action Hands",
+  "menu.taczvr.hand_mode.tacz_during_manipulation": "Authored Action Hands",
   "menu.taczvr.support_snap": "Empty Snap: %s",
   "menu.taczvr.shield_snap": "Shield Snap: %s",
+  "menu.taczvr.stabilization": "Stability: %s%%",
   "menu.taczvr.enabled": "On",
   "menu.taczvr.disabled": "Off"
 }

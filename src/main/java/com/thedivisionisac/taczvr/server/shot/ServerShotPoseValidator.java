@@ -15,6 +15,8 @@ import java.util.Optional;
 
 /**
  * Validates direction strictly while degrading an invalid muzzle to eye-origin shooting instead of rejecting the shot.
+ * Server-thread callers recheck muzzle geometry at receipt, consumption, and delayed projectile creation.
+ * Rechecking the muzzle never changes the direction or support-hand declaration already accepted for that shot.
  */
 public final class ServerShotPoseValidator {
     private static final double MIN_DIRECTION_LENGTH_SQUARED = 0.25;
@@ -24,15 +26,14 @@ public final class ServerShotPoseValidator {
     }
 
     public static Optional<ValidatedShotPose> validate(ServerPlayer player, Vec3 candidateDirection,
-                                                        @Nullable Vec3 candidateMuzzle) {
+                                                        @Nullable Vec3 candidateMuzzle,
+                                                        boolean supportHandSnapped) {
         Optional<ValidatedShotDirection> direction = validateDirection(player, candidateDirection);
         if (direction.isEmpty()) {
             return Optional.empty();
         }
-        Vec3 muzzle = TaczVrServerConfig.ENABLE_VR_MUZZLE_ORIGIN.get()
-                ? validateMuzzle(player, candidateMuzzle).orElse(null)
-                : null;
-        return Optional.of(new ValidatedShotPose(direction.get(), muzzle));
+        Vec3 muzzle = validateMuzzle(player, candidateMuzzle).orElse(null);
+        return Optional.of(new ValidatedShotPose(direction.get(), muzzle, supportHandSnapped));
     }
 
     public static Optional<ValidatedShotDirection> validateDirection(ServerPlayer player, Vec3 candidate) {
@@ -59,51 +60,30 @@ public final class ServerShotPoseValidator {
         return Optional.of(new ValidatedShotDirection(normalized));
     }
 
-    private static Optional<Vec3> validateMuzzle(ServerPlayer player, @Nullable Vec3 candidate) {
-        if (candidate == null || !isFinite(candidate)) {
+    public static Optional<Vec3> validateMuzzle(ServerPlayer player, @Nullable Vec3 candidate) {
+        if (!TaczVrServerConfig.ENABLE_VR_MUZZLE_ORIGIN.get() || candidate == null || !isFinite(candidate)) {
             return Optional.empty();
         }
 
-        Vec3 eyePosition = player.getEyePosition();
-        if (candidate.distanceToSqr(eyePosition) > square(TaczVrServerConfig.MAX_MUZZLE_EYE_DISTANCE.get())) {
-            return Optional.empty();
-        }
-
-        Optional<Vec3> serverHandPosition = VivecraftServerCompat.getMainHandPosition(player);
-        if (serverHandPosition.isPresent()
-                && candidate.distanceToSqr(serverHandPosition.get())
-                > square(TaczVrServerConfig.MAX_MUZZLE_HAND_DISTANCE.get())) {
-            return Optional.empty();
-        }
-        if (!player.serverLevel().getWorldBorder().isWithinBounds(BlockPos.containing(candidate))) {
-            return Optional.empty();
-        }
-        if (TaczVrServerConfig.CHECK_MUZZLE_OBSTRUCTION.get()) {
-            HitResult eyeHit = clip(player, eyePosition, candidate);
-            if (eyeHit.getType() == HitResult.Type.BLOCK) {
-                return Optional.of(MuzzleOriginClamp.beforeSurface(eyePosition, eyeHit.getLocation()));
-            }
-            if (serverHandPosition
-                    .map(handPosition -> isObstructed(player, handPosition, candidate))
-                    .orElse(false)) {
-                return Optional.empty();
-            }
-        }
-        return Optional.of(candidate);
-    }
-
-    private static boolean isObstructed(ServerPlayer player, Vec3 start, Vec3 end) {
-        return clip(player, start, end).getType() == HitResult.Type.BLOCK;
+        return MuzzleOriginPolicy.validate(
+                candidate, player.getEyePosition(),
+                () -> VivecraftServerCompat.getMainHandPosition(player),
+                TaczVrServerConfig.MAX_MUZZLE_EYE_DISTANCE.get(),
+                TaczVrServerConfig.MAX_MUZZLE_HAND_DISTANCE.get(),
+                TaczVrServerConfig.CHECK_MUZZLE_OBSTRUCTION.get(),
+                position -> player.serverLevel().getWorldBorder().isWithinBounds(BlockPos.containing(position)),
+                (start, end) -> {
+                    HitResult hit = clip(player, start, end);
+                    return hit.getType() == HitResult.Type.BLOCK
+                            ? Optional.of(hit.getLocation()) : Optional.empty();
+                }
+        );
     }
 
     private static HitResult clip(ServerPlayer player, Vec3 start, Vec3 end) {
         return player.serverLevel().clip(new ClipContext(
                 start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player
         ));
-    }
-
-    private static double square(double value) {
-        return value * value;
     }
 
     private static double angleDegrees(Vec3 first, Vec3 second) {

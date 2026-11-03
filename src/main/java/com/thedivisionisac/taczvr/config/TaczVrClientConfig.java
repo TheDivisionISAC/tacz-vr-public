@@ -11,14 +11,22 @@ public final class TaczVrClientConfig {
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SHOT_DIRECTION;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_MUZZLE_ORIGIN;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_AIM_STABILIZATION;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_MAGNIFICATION_SCALED_STABILIZATION;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_VIEW_RELATIVE_STABILIZATION;
+    public static final ForgeConfigSpec.IntValue VR_STABILIZATION_LEVEL;
     public static final ForgeConfigSpec.DoubleValue VR_HIP_STABILIZATION_STRENGTH;
     public static final ForgeConfigSpec.DoubleValue VR_ADS_STABILIZATION_STRENGTH;
     public static final ForgeConfigSpec.DoubleValue VR_STABILIZATION_RELEASE_SPEED;
     public static final ForgeConfigSpec.DoubleValue VR_HIP_STABILIZATION_MAX_POSITION_OFFSET;
     public static final ForgeConfigSpec.DoubleValue VR_ADS_STABILIZATION_MAX_POSITION_OFFSET;
     public static final ForgeConfigSpec.DoubleValue VR_STABILIZATION_POSITION_RELEASE_SPEED;
+    public static final ForgeConfigSpec.DoubleValue VR_HIP_VIEW_ROTATION_MAX_OFFSET;
+    public static final ForgeConfigSpec.DoubleValue VR_ADS_VIEW_ROTATION_MAX_OFFSET;
+    public static final ForgeConfigSpec.DoubleValue VR_HIP_VIEW_POSITION_MAX_OFFSET;
+    public static final ForgeConfigSpec.DoubleValue VR_ADS_VIEW_POSITION_MAX_OFFSET;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_GUN_RENDERING;
     public static final ForgeConfigSpec.DoubleValue VR_GUN_SCALE_MULTIPLIER;
+    public static final ForgeConfigSpec.DoubleValue VR_LRTACTICAL_THROWABLE_SCALE;
     public static final ForgeConfigSpec.DoubleValue VR_GUN_GRIP_OFFSET_X;
     public static final ForgeConfigSpec.DoubleValue VR_GUN_GRIP_OFFSET_Y;
     public static final ForgeConfigSpec.DoubleValue VR_GUN_GRIP_OFFSET_Z;
@@ -37,6 +45,7 @@ public final class TaczVrClientConfig {
     public static final ForgeConfigSpec.IntValue VR_ANIMATION_HAND_RELEASE_GRACE_MS;
     public static final ForgeConfigSpec.DoubleValue VR_ANIMATION_HAND_MAX_TRANSLATION;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SUPPORT_HAND_SNAP;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_NEAR_MAIN_HAND_SUPPORT_SNAP;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SHIELD_HAND_SNAP;
     public static final ForgeConfigSpec.DoubleValue VR_SUPPORT_HAND_SNAP_ENTER_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue VR_SUPPORT_HAND_SNAP_EXIT_DISTANCE;
@@ -50,13 +59,21 @@ public final class TaczVrClientConfig {
     public static final ForgeConfigSpec.DoubleValue VR_TRACER_VERTICAL_CORRECTION;
     public static final ForgeConfigSpec.BooleanValue CORRECT_VR_MUZZLE_FLASH_PER_EYE;
     public static final ForgeConfigSpec.BooleanValue HIDE_VIVECRAFT_CROSSHAIR_WITH_GUN;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_PHYSICAL_SCOPE_GATE;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SCOPE_MAGNIFICATION;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SCOPE_OCULUS_COMPAT;
     public static final ForgeConfigSpec.BooleanValue DISABLE_TACZ_WORLD_SCOPE_FOV;
     public static final ForgeConfigSpec.BooleanValue DISABLE_TACZ_CAMERA_RECOIL;
     public static final ForgeConfigSpec.BooleanValue DISABLE_TACZ_LEVEL_CAMERA_ANIMATION;
     public static final ForgeConfigSpec.BooleanValue DISABLE_TACZ_SPRINT_ANIMATION_IN_VR;
     public static final ForgeConfigSpec.BooleanValue ENABLE_HAPTICS;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_GUN_RADIAL_MENU;
-    public static final ForgeConfigSpec.BooleanValue RELOAD_ON_EMPTY_RADIAL_RELEASE;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SCOPE_ZOOM_CHORD;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_GUN_HOTBAR_RETREAT;
+    public static final ForgeConfigSpec.DoubleValue VR_GUN_HOTBAR_RETREAT_DISTANCE;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_LRTACTICAL_THROWABLE_VR_COMPAT;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_LRTACTICAL_CONSUMABLE_VR_RENDERING;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_LRTACTICAL_MELEE_VR_RENDERING;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -69,14 +86,32 @@ public final class TaczVrClientConfig {
                 .comment("Send a model-derived forward muzzle origin for server validation.")
                 .define("enableVrMuzzleOrigin", true);
         ENABLE_VR_AIM_STABILIZATION = builder
-                .comment("Apply speed-adaptive direction stabilization to TACZ guns in VR.")
+                .comment("Apply speed-adaptive direction and position stabilization to TACZ guns in VR.")
                 .define("enableVrAimStabilization", true);
+        ENABLE_VR_MAGNIFICATION_SCALED_STABILIZATION = builder
+                .comment(
+                        "Increase the current hip/ADS stabilization strength with the equipped optical scope's selected zoom.",
+                        "Enabled by default; gain is capped at 25x. Zero strength and motion-release thresholds are preserved.",
+                        "Does not increase configured position or view-relative offset limits."
+                )
+                .define("enableVrMagnificationScaledStabilization", true);
+        ENABLE_VR_VIEW_RELATIVE_STABILIZATION = builder
+                .comment("Add bounded render-only HMD-relative full-pose stabilization, including controller roll.")
+                .define("enableVrViewRelativeStabilization", true);
+        VR_STABILIZATION_LEVEL = builder
+                .comment("User-facing overall stabilization level; 50 preserves the validated default tuning.")
+                .defineInRange(
+                        "vrStabilizationLevel",
+                        VrStabilizationLevel.DEFAULT,
+                        VrStabilizationLevel.MINIMUM,
+                        VrStabilizationLevel.MAXIMUM
+                );
         VR_HIP_STABILIZATION_STRENGTH = builder
                 .comment("Weak stabilization while holding a gun without aiming; 0 disables filtering.")
                 .defineInRange("vrHipStabilizationStrength", 0.55D, 0.0D, 1.0D);
         VR_ADS_STABILIZATION_STRENGTH = builder
-                .comment("Stronger stabilization while TACZ's aim state is active; 0 disables filtering.")
-                .defineInRange("vrAdsStabilizationStrength", 0.96D, 0.0D, 1.0D);
+                .comment("Slightly stronger stabilization while TACZ's aim state is active; 0 disables filtering.")
+                .defineInRange("vrAdsStabilizationStrength", 0.58D, 0.0D, 1.0D);
         VR_STABILIZATION_RELEASE_SPEED = builder
                 .comment("Angular speed in degrees per second at which stabilization fully releases for fast turns.")
                 .defineInRange("vrStabilizationReleaseSpeed", 120.0D, 30.0D, 720.0D);
@@ -85,10 +120,22 @@ public final class TaczVrClientConfig {
                 .defineInRange("vrHipStabilizationMaxPositionOffset", 0.015D, 0.0D, 0.10D);
         VR_ADS_STABILIZATION_MAX_POSITION_OFFSET = builder
                 .comment("Maximum positional lag from the tracked hand while aiming, in blocks.")
-                .defineInRange("vrAdsStabilizationMaxPositionOffset", 0.04D, 0.0D, 0.15D);
+                .defineInRange("vrAdsStabilizationMaxPositionOffset", 0.017D, 0.0D, 0.15D);
         VR_STABILIZATION_POSITION_RELEASE_SPEED = builder
                 .comment("Hand speed in blocks per second at which positional stabilization fully releases.")
                 .defineInRange("vrStabilizationPositionReleaseSpeed", 0.80D, 0.20D, 3.0D);
+        VR_HIP_VIEW_ROTATION_MAX_OFFSET = builder
+                .comment("Maximum render-only HMD-relative angular correction while hip firing, in degrees.")
+                .defineInRange("vrHipViewRotationMaxOffset", 0.55D, 0.0D, 3.0D);
+        VR_ADS_VIEW_ROTATION_MAX_OFFSET = builder
+                .comment("Maximum render-only HMD-relative angular correction while aiming, in degrees.")
+                .defineInRange("vrAdsViewRotationMaxOffset", 0.60D, 0.0D, 3.0D);
+        VR_HIP_VIEW_POSITION_MAX_OFFSET = builder
+                .comment("Maximum render-only HMD-relative positional correction while hip firing, in blocks.")
+                .defineInRange("vrHipViewPositionMaxOffset", 0.004D, 0.0D, 0.03D);
+        VR_ADS_VIEW_POSITION_MAX_OFFSET = builder
+                .comment("Maximum render-only HMD-relative positional correction while aiming, in blocks.")
+                .defineInRange("vrAdsViewPositionMaxOffset", 0.0045D, 0.0D, 0.03D);
         builder.pop();
 
         builder.push("rendering");
@@ -152,6 +199,12 @@ public final class TaczVrClientConfig {
         ENABLE_VR_SUPPORT_HAND_SNAP = builder
                 .comment("When Vivecraft hands are visible, snap an empty support hand to a nearby TACZ left-hand anchor.")
                 .define("enableVrSupportHandSnap", true);
+        ENABLE_VR_NEAR_MAIN_HAND_SUPPORT_SNAP = builder
+                .comment(
+                        "For non-pistol TACZ guns, let an empty support hand near the main hand enter the normal left-hand anchor.",
+                        "This supports a compact pistol-style gesture without a physical gunstock; the hand still renders at the authored foregrip."
+                )
+                .define("enableVrNearMainHandSupportSnap", false);
         ENABLE_VR_SHIELD_HAND_SNAP = builder
                 .comment("When Vivecraft hands are visible, let shield-capable offhand items use the TACZ left-hand anchor.")
                 .define("enableVrShieldHandSnap", true);
@@ -191,6 +244,27 @@ public final class TaczVrClientConfig {
         HIDE_VIVECRAFT_CROSSHAIR_WITH_GUN = builder
                 .comment("Hide Vivecraft's world-space crosshair while holding a TACZ gun.")
                 .define("hideVivecraftCrosshairWithGun", true);
+        ENABLE_VR_PHYSICAL_SCOPE_GATE = builder
+                .comment(
+                        "Experimental: let each render eye's eye-to-ocular alignment independently own its TACZ scope aperture.",
+                        "TACZ aim remains available to stabilization but no longer scales this aperture; the other eye stays closed.",
+                        "Red dots are unchanged. Enabled by default; invalid or unsupported scope facts still fail closed."
+                )
+                .define("enableVrPhysicalScopeGate", true);
+        ENABLE_VR_SCOPE_MAGNIFICATION = builder
+                .comment(
+                        "Experimental Forge scope world texture; requires enableVrPhysicalScopeGate.",
+                        "Enabled by default. Adds at most one shared scope pass in the bounded eye-box prewarm region.",
+                        "Unsupported renderers fall back; Oculus requires its separate compatibility checks."
+                )
+                .define("enableVrScopeMagnification", true);
+        ENABLE_VR_SCOPE_OCULUS_COMPAT = builder
+                .comment(
+                        "Experimental Oculus 1.8.0 scope support. Requires the physical gate and magnification.",
+                        "With shaders, requires Vivecraft disableShaderOptimization and a shader reload for independent pipelines.",
+                        "Enabled by default. Uses final-eye composition only; unsupported pipelines keep magnification disabled."
+                )
+                .define("enableVrScopeOculusCompat", true);
         DISABLE_TACZ_WORLD_SCOPE_FOV = builder
                 .comment("Prevent TACZ scope magnification from changing the VR world FOV.")
                 .define("disableTaczWorldScopeFov", true);
@@ -215,9 +289,33 @@ public final class TaczVrClientConfig {
         ENABLE_VR_GUN_RADIAL_MENU = builder
                 .comment("Replace Vivecraft's right-hand radial menu with TACZ actions while holding a gun.")
                 .define("enableVrGunRadialMenu", true);
-        RELOAD_ON_EMPTY_RADIAL_RELEASE = builder
-                .comment("Reload when the TACZ VR radial menu closes without selecting an action.")
-                .define("reloadOnEmptyRadialRelease", true);
+        ENABLE_VR_SCOPE_ZOOM_CHORD = builder
+                .comment(
+                        "Hold Use/A and press the right radial/B button to cycle an optical scope's native TACZ zoom.",
+                        "Consumes that radial press to avoid opening the menu or reloading on release. VR only."
+                )
+                .define("enableVrScopeZoomChord", true);
+        ENABLE_VR_GUN_HOTBAR_RETREAT = builder
+                .comment("Move Vivecraft's hand/wrist HUD and touch hotbar backward while a TACZ gun is held.")
+                .define("enableVrGunHotbarRetreat", true);
+        VR_GUN_HOTBAR_RETREAT_DISTANCE = builder
+                .comment("Fixed room-space backward offset for the gun HUD and touch hotbar, in blocks.")
+                .defineInRange("vrGunHotbarRetreatDistance", 0.10D, 0.0D, 0.50D);
+        builder.pop();
+
+        builder.push("compatibility");
+        ENABLE_LRTACTICAL_THROWABLE_VR_COMPAT = builder
+                .comment("Render LRTactical throwables at the tracked hand and bridge the main trigger to their native hold-and-release use flow.")
+                .define("enableLrTacticalThrowableVrCompat", true);
+        ENABLE_LRTACTICAL_CONSUMABLE_VR_RENDERING = builder
+                .comment("Render LRTactical food and medicine with the validated throwable hand alignment.")
+                .define("enableLrTacticalConsumableVrRendering", true);
+        ENABLE_LRTACTICAL_MELEE_VR_RENDERING = builder
+                .comment("Render LRTactical melee weapons with the validated throwable hand alignment; combat remains native.")
+                .define("enableLrTacticalMeleeVrRendering", true);
+        VR_LRTACTICAL_THROWABLE_SCALE = builder
+                .comment("Shared first-person scale for supported LRTactical throwables, consumables and melee items.")
+                .defineInRange("vrLrTacticalThrowableScale", 0.60D, 0.25D, 2.0D);
         builder.pop();
         SPEC = builder.build();
     }

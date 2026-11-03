@@ -91,8 +91,11 @@ dependencies {
         runtimeOnly fg.deobf("maven.modrinth:vivecraft:${vivecraft_version}")
     }
     implementation fg.deobf("maven.modrinth:${tacz_modrinth_project}:${tacz_modrinth_version}")
+    // TACZ 1.1.8 supplies the Forge runtime through JarJar; compile only against its common annotation/API classes.
+    compileOnly 'io.github.llamalad7:mixinextras-common:0.3.6'
 
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    annotationProcessor 'io.github.llamalad7:mixinextras-common:0.3.6'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
 }

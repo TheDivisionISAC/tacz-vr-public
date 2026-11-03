@@ -1,9 +1,12 @@
 package com.thedivisionisac.taczvr.mixin.client;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.thedivisionisac.taczvr.client.TaczVrClient;
 import com.thedivisionisac.taczvr.client.render.VrGunHandVisibility;
 import com.thedivisionisac.taczvr.client.render.VrGunHandPoseCache;
 import com.thedivisionisac.taczvr.client.render.VrGunPoseTransform;
+import com.thedivisionisac.taczvr.client.vr.VrScopeAlignmentCapture;
 import com.thedivisionisac.taczvr.config.TaczVrClientConfig;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.tacz.guns.client.model.BedrockGunModel;
@@ -28,7 +31,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Central TACZ first-person integration: captures the controller basis, re-bases the gun, hides TACZ model hands, and
- * removes HMD view rotation from TACZ's camera-relative gun transform.
+ * removes HMD view rotation from TACZ's camera-relative gun transform. The model-render hook is a chainable
+ * MixinExtras operation so cooperative render-type wrappers, such as ARCANA's, can preserve these VR transforms.
  */
 @Mixin(value = GunItemRendererWrapper.class, remap = false)
 abstract class GunItemRendererWrapperMixin {
@@ -74,7 +78,7 @@ abstract class GunItemRendererWrapperMixin {
         callback.cancel();
     }
 
-    @Redirect(
+    @WrapOperation(
             method = "lambda$renderFirstPerson$5",
             at = @At(
                     value = "INVOKE",
@@ -84,26 +88,27 @@ abstract class GunItemRendererWrapperMixin {
     )
     private void taczvr$renderWithoutModelHands(BedrockGunModel gunModel, PoseStack poseStack, ItemStack stack,
                                                  ItemDisplayContext context, RenderType renderType, int light,
-                                                 int overlay) {
+                                                 int overlay, Operation<Void> original) {
         if (TaczVrClientConfig.ENABLE_VR_GUN_RENDERING.get() && TaczVrClient.vivecraft().isVrActive()) {
             boolean aligned = VrGunPoseTransform.alignRightHand(
                     poseStack, gunModel, stack, this.taczvr$controllerPose, this.taczvr$controllerNormal
             );
             if (aligned) {
                 VrGunHandPoseCache.beginGunPass(gunModel, stack, this.taczvr$controllerPose);
+                VrScopeAlignmentCapture.capture(gunModel, stack, poseStack);
             }
         }
         LocalPlayer player = Minecraft.getInstance().player;
         boolean renderTaczHands = player == null || VrGunHandVisibility.shouldRenderTaczModelHands(player, stack);
         if (!TaczVrClient.vivecraft().isVrActive() || renderTaczHands) {
-            gunModel.render(poseStack, stack, context, renderType, light, overlay);
+            original.call(gunModel, poseStack, stack, context, renderType, light, overlay);
             return;
         }
 
         boolean renderHand = gunModel.getRenderHand();
         gunModel.setRenderHand(false);
         try {
-            gunModel.render(poseStack, stack, context, renderType, light, overlay);
+            original.call(gunModel, poseStack, stack, context, renderType, light, overlay);
         } finally {
             gunModel.setRenderHand(renderHand);
         }

@@ -2,6 +2,8 @@ package com.thedivisionisac.taczvr.mixin.client;
 
 import com.thedivisionisac.taczvr.client.control.VrGunRadialActions;
 import com.thedivisionisac.taczvr.client.control.VrGunRadialState;
+import com.thedivisionisac.taczvr.client.control.VrStabilizationSlider;
+import com.thedivisionisac.taczvr.client.compat.lrtactical.LrTacticalVrRadialActions;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -29,9 +31,32 @@ abstract class GuiRadialMixin extends Screen {
         int centerX = this.width / 2;
         int centerY = this.height / 2;
         this.clearWidgets();
-        this.taczvr$addButton("menu.taczvr.reload", centerX - 52, centerY - 84, 104, VrGunRadialActions::reload);
-        this.taczvr$addButton("menu.taczvr.refit", centerX - 142, centerY - 24, 104, VrGunRadialActions::openRefit);
-        this.taczvr$addButton("menu.taczvr.inspect", centerX + 38, centerY - 24, 104, VrGunRadialActions::inspect);
+        if (VrGunRadialState.isLrTacticalMenuActive()) {
+            this.taczvr$addButton(
+                    "menu.taczvr.inspect",
+                    centerX - 52,
+                    centerY - 44,
+                    104,
+                    LrTacticalVrRadialActions::inspect
+            );
+            this.taczvr$addButton(
+                    "menu.taczvr.drop_item",
+                    centerX - 52,
+                    centerY - 4,
+                    104,
+                    LrTacticalVrRadialActions::drop
+            );
+            Component handMode = Component.translatable(
+                    "menu.taczvr.hand_mode",
+                    Component.translatable(VrGunRadialActions.currentHandDisplayMode().translationKey())
+            );
+            this.taczvr$addButton(handMode, centerX - 72, centerY + 36, 144,
+                    LrTacticalVrRadialActions::cycleHandDisplayMode);
+            return;
+        }
+        this.taczvr$addButton("menu.taczvr.refit", centerX - 142, centerY - 30, 104, VrGunRadialActions::openRefit);
+        this.taczvr$addButton("menu.taczvr.inspect", centerX + 38, centerY - 30, 104, VrGunRadialActions::inspect);
+        this.taczvr$addButton("menu.taczvr.reload", centerX - 52, centerY - 10, 104, VrGunRadialActions::reload);
         this.taczvr$addButton("menu.taczvr.fire_select", centerX - 142, centerY + 36, 104,
                 VrGunRadialActions::fireSelect);
         Component handMode = Component.translatable(
@@ -57,6 +82,7 @@ abstract class GuiRadialMixin extends Screen {
         this.taczvr$addButton(shieldSnap, centerX - 48, centerY + 86, 96,
                 VrGunRadialActions::toggleShieldHandSnap);
         this.taczvr$addButton("menu.taczvr.drop", centerX + 56, centerY + 86, 96, VrGunRadialActions::dropGun);
+        this.addRenderableWidget(new VrStabilizationSlider(centerX - 152, centerY - 54, 304));
     }
 
     private void taczvr$addButton(String translationKey, int x, int y, int width, Runnable action) {
@@ -65,7 +91,6 @@ abstract class GuiRadialMixin extends Screen {
 
     private void taczvr$addButton(Component label, int x, int y, int width, Runnable action) {
         this.addRenderableWidget(Button.builder(label, button -> {
-                    VrGunRadialState.markActionSelected();
                     action.run();
                 })
                 .bounds(x, y, width, 20)

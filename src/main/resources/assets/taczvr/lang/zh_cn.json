@@ -4,12 +4,14 @@
   "menu.taczvr.fire_select": "射击模式",
   "menu.taczvr.refit": "更换配件",
   "menu.taczvr.drop": "丢弃武器",
+  "menu.taczvr.drop_item": "丢弃",
   "menu.taczvr.hand_mode": "手部：%s",
   "menu.taczvr.hand_mode.vivecraft_snap": "VR 吸附",
   "menu.taczvr.hand_mode.hidden": "全部隐藏",
-  "menu.taczvr.hand_mode.tacz_during_manipulation": "动作时 TACZ 双手",
+  "menu.taczvr.hand_mode.tacz_during_manipulation": "动作时模型双手",
   "menu.taczvr.support_snap": "空手吸附：%s",
   "menu.taczvr.shield_snap": "盾牌吸附：%s",
+  "menu.taczvr.stabilization": "稳定强度：%s%%",
   "menu.taczvr.enabled": "开",
   "menu.taczvr.disabled": "关"
 }

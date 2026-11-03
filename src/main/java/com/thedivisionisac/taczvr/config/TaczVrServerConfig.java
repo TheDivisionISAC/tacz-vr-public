@@ -10,6 +10,7 @@ public final class TaczVrServerConfig {
 
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_SHOT_DIRECTION;
     public static final ForgeConfigSpec.BooleanValue ENABLE_VR_MUZZLE_ORIGIN;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_VR_PHYSICAL_GRIP_ACCURACY;
     public static final ForgeConfigSpec.BooleanValue REQUIRE_SERVER_VIVECRAFT_POSE;
     public static final ForgeConfigSpec.DoubleValue MAX_SERVER_POSE_ANGLE_DEGREES;
     public static final ForgeConfigSpec.DoubleValue MAX_FALLBACK_VIEW_ANGLE_DEGREES;
@@ -18,6 +19,8 @@ public final class TaczVrServerConfig {
     public static final ForgeConfigSpec.BooleanValue CHECK_MUZZLE_OBSTRUCTION;
     public static final ForgeConfigSpec.IntValue SHOT_POSE_TTL_TICKS;
     public static final ForgeConfigSpec.IntValue MAX_PENDING_SHOT_POSES;
+    public static final ForgeConfigSpec.BooleanValue ENABLE_LRTACTICAL_VR_THROW_DIRECTION;
+    public static final ForgeConfigSpec.IntValue LRTACTICAL_THROW_POSE_TTL_TICKS;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -28,6 +31,12 @@ public final class TaczVrServerConfig {
         ENABLE_VR_MUZZLE_ORIGIN = builder
                 .comment("Move TACZ bullets to a validated VR muzzle position when one is supplied.")
                 .define("enableVrMuzzleOrigin", true);
+        ENABLE_VR_PHYSICAL_GRIP_ACCURACY = builder
+                .comment(
+                        "Use TACZ AIM inaccuracy for VR pistols and physically two-handed long guns.",
+                        "Unsnapped long guns retain TACZ hip-fire inaccuracy; ADS only controls optical-sight behavior."
+                )
+                .define("enableVrPhysicalGripAccuracy", true);
         REQUIRE_SERVER_VIVECRAFT_POSE = builder
                 .comment(
                         "Require Vivecraft's server-side hand pose before accepting a controller shot direction.",
@@ -58,6 +67,17 @@ public final class TaczVrServerConfig {
         MAX_PENDING_SHOT_POSES = builder
                 .comment("Maximum pending VR shot directions retained per player.")
                 .defineInRange("maxPendingShotPoses", 16, 1, 128);
+        builder.pop();
+        builder.push("lrtactical");
+        ENABLE_LRTACTICAL_VR_THROW_DIRECTION = builder
+                .comment(
+                        "Accept validated controller directions for optional LRTactical throwable items.",
+                        "LRTactical still owns entity creation, initial speed, cooldowns, fuses and item consumption."
+                )
+                .define("enableVrThrowDirection", true);
+        LRTACTICAL_THROW_POSE_TTL_TICKS = builder
+                .comment("Lifetime of the single pending LRTactical throw direction in server ticks.")
+                .defineInRange("throwPoseTtlTicks", 4, 1, 20);
         builder.pop();
         SPEC = builder.build();
     }

@@ -14,7 +14,17 @@ import java.util.Optional;
  * Optional common-side Vivecraft pose lookup used to cross-check client shot claims.
  */
 public final class VivecraftServerCompat {
-    private static final Bridge UNAVAILABLE = player -> Optional.empty();
+    private static final Bridge UNAVAILABLE = new Bridge() {
+        @Override
+        public boolean isVrPlayer(Player player) {
+            return false;
+        }
+
+        @Override
+        public Optional<MainHandPose> getMainHandPose(Player player) {
+            return Optional.empty();
+        }
+    };
     private static Bridge bridge = UNAVAILABLE;
     private static boolean failureLogged;
 
@@ -41,6 +51,15 @@ public final class VivecraftServerCompat {
         }
     }
 
+    public static boolean isVrPlayer(Player player) {
+        try {
+            return bridge.isVrPlayer(player);
+        } catch (LinkageError | RuntimeException error) {
+            disable("server VR-player query", error);
+            return false;
+        }
+    }
+
     public static Optional<Vec3> getMainHandPosition(Player player) {
         try {
             return bridge.getMainHandPose(player).map(MainHandPose::position);
@@ -59,6 +78,8 @@ public final class VivecraftServerCompat {
     }
 
     private interface Bridge {
+        boolean isVrPlayer(Player player);
+
         Optional<MainHandPose> getMainHandPose(Player player);
     }
 
@@ -66,8 +87,13 @@ public final class VivecraftServerCompat {
         private final VRAPI api = VRAPI.instance();
 
         @Override
+        public boolean isVrPlayer(Player player) {
+            return this.api.isVRPlayer(player);
+        }
+
+        @Override
         public Optional<MainHandPose> getMainHandPose(Player player) {
-            if (!this.api.isVRPlayer(player)) {
+            if (!this.isVrPlayer(player)) {
                 return Optional.empty();
             }
             VRPose pose = this.api.getVRPose(player);

@@ -16,18 +16,26 @@ import java.util.function.Supplier;
  * Untrusted client shot facts correlated with TACZ's own shoot packet by timestamp.
  */
 public record C2SVrShotPose(int protocolVersion, long taczTimestamp, byte flags, @Nullable Vec3 direction,
-                            @Nullable Vec3 muzzlePosition) {
-    public static final int PROTOCOL_VERSION = 2;
-    public static final String CHANNEL_PROTOCOL_VERSION = Integer.toString(PROTOCOL_VERSION);
+    @Nullable Vec3 muzzlePosition) {
+    public static final int PROTOCOL_VERSION = 3;
     public static final byte FLAG_DIRECTION = 1;
     public static final byte FLAG_MUZZLE = 2;
+    public static final byte FLAG_SUPPORT_HAND_SNAPPED = 4;
 
-    public static C2SVrShotPose pose(long taczTimestamp, Vec3 direction, @Nullable Vec3 muzzlePosition) {
+    public static C2SVrShotPose pose(long taczTimestamp, Vec3 direction, @Nullable Vec3 muzzlePosition,
+                                    boolean supportHandSnapped) {
         byte flags = FLAG_DIRECTION;
         if (muzzlePosition != null) {
             flags |= FLAG_MUZZLE;
         }
+        if (supportHandSnapped) {
+            flags |= FLAG_SUPPORT_HAND_SNAPPED;
+        }
         return new C2SVrShotPose(PROTOCOL_VERSION, taczTimestamp, flags, direction, muzzlePosition);
+    }
+
+    public boolean supportHandSnapped() {
+        return (this.flags & FLAG_SUPPORT_HAND_SNAPPED) != 0;
     }
 
     public static void encode(C2SVrShotPose message, FriendlyByteBuf buffer) {
@@ -74,7 +82,12 @@ public record C2SVrShotPose(int protocolVersion, long taczTimestamp, byte flags,
                     || !TaczVrServerConfig.ENABLE_VR_SHOT_DIRECTION.get()) {
                 return;
             }
-            ServerShotPoseValidator.validate(sender, message.direction, message.muzzlePosition).ifPresentOrElse(pose -> {
+            ServerShotPoseValidator.validate(
+                    sender,
+                    message.direction,
+                    message.muzzlePosition,
+                    message.supportHandSnapped()
+            ).ifPresentOrElse(pose -> {
                 ServerShotPoseStore.put(sender, message.taczTimestamp, pose);
                 TaczVr.LOGGER.debug("Accepted VR shot pose for {} at TACZ timestamp {} (muzzle: {}).",
                         sender.getScoreboardName(), message.taczTimestamp, pose.hasMuzzlePosition());

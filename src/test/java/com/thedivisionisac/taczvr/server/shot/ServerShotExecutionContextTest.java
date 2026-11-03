@@ -54,7 +54,8 @@ class ServerShotExecutionContextTest {
     private static ValidatedShotPose pose(Vec3 muzzlePosition) {
         return new ValidatedShotPose(
                 new ValidatedShotDirection(new Vec3(0.0D, 0.0D, 1.0D)),
-                muzzlePosition
+                muzzlePosition,
+                false
         );
     }
 }
